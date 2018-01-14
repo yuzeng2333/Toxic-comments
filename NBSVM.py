@@ -1,0 +1,74 @@
+# -*- coding: utf-8 -*-
+import pandas as pd, numpy as np
+import nltk
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from nltk.stem.snowball import SnowballStemmer
+
+train = pd.read_csv('../input/train.csv')
+test = pd.read_csv('../input/test.csv')
+subm = pd.read_csv('../input/sample_submission.csv')
+
+label_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
+
+# fill in the empty comments
+COMMENT = 'comment_text'
+train[COMMENT].fillna("unknown", inplace=True)
+test[COMMENT].fillna("unknown", inplace=True)
+
+# Building the model
+import re, string
+#re_tok = re.compile(r'([{string.punctuation}“”¨«»®´·º½¾¿¡§£₤‘’])')  # the original code
+#re_tok = re.compile(r'([{string.punctuation}“”‘’])')
+#re_tok = re.compile(r'([' + string.punctuation + r'“”¨«»®´·º½¾¿¡§£₤‘’])')
+#re_tok = re.compile('([!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~“”¨«»®´·º½¾¿¡§£₤‘’])') 
+#re_tok = re.compile('string.punctuation')
+#re_tok = re.compile(r'!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~')
+#re_tok = re.compile(r'([“!#$%&*+,-./:;<=>?@\\^_`{|}~”¨«»®´·º½¾¿¡§£₤‘’])') 
+#s='Im @ $room %soB'
+
+#def tokenize(s): return re_tok.sub(r' \1 ', s).split()
+
+stemmer = SnowballStemmer("english")
+def tokenize(text):
+    tokens = nltk.word_tokenize(text)
+    stems = []
+    for item in tokens:
+        stems.append(stemmer.stem(item))
+    return stems
+
+n = train.shape[0]
+vec = TfidfVectorizer(ngram_range=(5,5), tokenizer=tokenize,
+               min_df=3, max_df=0.9, strip_accents='unicode', use_idf=1,
+               smooth_idf=1, sublinear_tf=1 )
+trn_term_doc = vec.fit_transform(train[COMMENT])
+test_term_doc = vec.transform(test[COMMENT])
+
+#trn_term_doc, test_term_doc
+
+def pr(y_i, y):
+    p = x[y==y_i].sum(0)
+    return (p+1) / ((y==y_i).sum()+1)
+
+x = trn_term_doc
+test_x = test_term_doc
+
+def get_mdl(y):
+    y = y.values
+    r = np.log(pr(1,y) / pr(0,y))
+    m = LogisticRegression(C=4, dual=True)
+    x_nb = x.multiply(r)
+    return m.fit(x_nb, y), r
+
+preds = np.zeros((len(test), len(label_cols)))
+
+for i, j in enumerate(label_cols):
+    print('fit', j)
+    m,r = get_mdl(train[j])
+    preds[:,i] = m.predict_proba(test_x.multiply(r))[:,1]
+
+submid = pd.DataFrame({'id': subm["id"]})
+submission = pd.concat([submid, pd.DataFrame(preds, columns = label_cols)], axis=1)
+submission.to_csv('submission.csv', index=False)
+
+
